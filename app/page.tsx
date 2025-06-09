@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
-import { RotateCcw, Trophy, X } from "lucide-react"
+import { RotateCcw, Trophy, X, Server, Monitor } from "lucide-react"
 
 type Tile = {
   id: number
@@ -23,10 +23,72 @@ export default function Game2048() {
   const [gameOver, setGameOver] = useState(false)
   const [gameWon, setGameWon] = useState(false)
   const [showWinModal, setShowWinModal] = useState(false)
+  const [sessionId, setSessionId] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [useBackend, setUseBackend] = useState(false)
+  const [backendAvailable, setBackendAvailable] = useState(false)
   const [nextId, setNextId] = useState(1)
 
-  // Initialize game
-  const initGame = useCallback(() => {
+  // Check if backend is available
+  const checkBackendAvailability = useCallback(async () => {
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 2000) // 2 second timeout
+
+      const response = await fetch("http://localhost:3001/api/game/new", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        signal: controller.signal,
+      })
+
+      clearTimeout(timeoutId)
+
+      if (response.ok) {
+        setBackendAvailable(true)
+        return true
+      }
+    } catch (error) {
+      // Backend not available, which is fine
+      setBackendAvailable(false)
+    }
+    return false
+  }, [])
+
+  // Initialize game with backend
+  const initGameWithBackend = useCallback(async () => {
+    try {
+      setIsLoading(true)
+      const response = await fetch("http://localhost:3001/api/game/new", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to initialize game")
+      }
+
+      const data = await response.json()
+      setSessionId(data.sessionId)
+      setTiles(data.tiles)
+      setScore(data.score)
+      setGameOver(data.gameOver)
+      setGameWon(data.gameWon)
+      setShowWinModal(false)
+      return true
+    } catch (error) {
+      console.error("Error initializing game with backend:", error)
+      return false
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  // Client-side initialization
+  const initGameClientSide = useCallback(() => {
     const newTiles: Tile[] = []
     let id = 1
 
@@ -58,10 +120,24 @@ export default function Game2048() {
     setGameOver(false)
     setGameWon(false)
     setShowWinModal(false)
+    setSessionId(null)
     setNextId(id)
   }, [])
 
-  // Add new tile after move
+  // Initialize game
+  const initGame = useCallback(async () => {
+    if (useBackend && backendAvailable) {
+      const success = await initGameWithBackend()
+      if (!success) {
+        // Fallback to client-side
+        initGameClientSide()
+      }
+    } else {
+      initGameClientSide()
+    }
+  }, [useBackend, backendAvailable, initGameWithBackend, initGameClientSide])
+
+  // Add new tile after move (client-side)
   const addNewTile = useCallback(
     (currentTiles: Tile[]) => {
       const emptyCells = []
@@ -92,8 +168,50 @@ export default function Game2048() {
     [nextId],
   )
 
-  // Move tiles in specified direction
-  const moveTiles = useCallback(
+  // Move tiles with backend
+  const moveWithBackend = useCallback(
+    async (direction: Direction) => {
+      if (!sessionId) return false
+
+      try {
+        const response = await fetch("http://localhost:3001/api/game/move", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            sessionId,
+            direction,
+          }),
+        })
+
+        if (!response.ok) {
+          throw new Error("Failed to make move")
+        }
+
+        const data = await response.json()
+
+        if (data.moved) {
+          setTiles(data.tiles)
+          setScore(data.score)
+          setGameOver(data.gameOver)
+
+          if (data.gameWon && !gameWon) {
+            setGameWon(true)
+            setShowWinModal(true)
+          }
+        }
+        return true
+      } catch (error) {
+        console.error("Error making move with backend:", error)
+        return false
+      }
+    },
+    [sessionId, gameWon],
+  )
+
+  // Client-side move logic
+  const moveClientSide = useCallback(
     (direction: Direction) => {
       if (gameOver) return
 
@@ -290,6 +408,85 @@ export default function Game2048() {
     setGameOver(true)
   }, [])
 
+  // Move tiles in specified direction
+  const moveTiles = useCallback(
+    async (direction: Direction) => {
+      if (gameOver || isLoading) return
+
+      setIsLoading(true)
+
+      try {
+        if (useBackend && sessionId) {
+          const success = await moveWithBackend(direction)
+          if (!success) {
+            // Fallback to client-side
+            moveClientSide(direction)
+          }
+        } else {
+          moveClientSide(direction)
+        }
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [gameOver, isLoading, useBackend, sessionId, moveWithBackend, moveClientSide],
+  )
+
+  // Reset game
+  const resetGame = useCallback(async () => {
+    if (useBackend && sessionId) {
+      try {
+        setIsLoading(true)
+        const response = await fetch("http://localhost:3001/api/game/reset", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            sessionId,
+          }),
+        })
+
+        if (!response.ok) {
+          throw new Error("Failed to reset game")
+        }
+
+        const data = await response.json()
+        setTiles(data.tiles)
+        setScore(data.score)
+        setGameOver(data.gameOver)
+        setGameWon(data.gameWon)
+        setShowWinModal(false)
+      } catch (error) {
+        console.error("Error resetting game:", error)
+        // Fallback to client-side initialization
+        initGameClientSide()
+      } finally {
+        setIsLoading(false)
+      }
+    } else {
+      initGame()
+    }
+  }, [useBackend, sessionId, initGameClientSide, initGame])
+
+  // Toggle between backend and client-side mode
+  const toggleBackendMode = useCallback(async () => {
+    if (!useBackend && backendAvailable) {
+      setUseBackend(true)
+      await initGame()
+    } else if (!useBackend && !backendAvailable) {
+      // Try to check backend availability again
+      const available = await checkBackendAvailability()
+      if (available) {
+        setUseBackend(true)
+        await initGame()
+      }
+    } else {
+      setUseBackend(false)
+      initGameClientSide()
+    }
+  }, [useBackend, backendAvailable, initGame, initGameClientSide, checkBackendAvailability])
+
   // Handle keyboard input
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
@@ -314,8 +511,11 @@ export default function Game2048() {
 
   // Initialize game on mount
   useEffect(() => {
-    initGame()
-  }, [initGame])
+    // Check backend availability first, then initialize
+    checkBackendAvailability().then(() => {
+      initGame()
+    })
+  }, [])
 
   // Update best score
   useEffect(() => {
@@ -363,6 +563,21 @@ export default function Game2048() {
         <div className="text-center mb-6">
           <h1 className="text-4xl font-bold text-blue-900 mb-2">2048</h1>
           <p className="text-slate-600 text-sm">Join numbers to reach 2048!</p>
+
+          {/* Backend Status */}
+          <div className="mt-2 flex items-center justify-center gap-2">
+            {useBackend && sessionId ? (
+              <div className="flex items-center gap-1 text-xs text-green-600">
+                <Server className="w-3 h-3" />
+                <span>C++ Backend Active</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1 text-xs text-blue-600">
+                <Monitor className="w-3 h-3" />
+                <span>Client-side Mode</span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Score */}
@@ -377,11 +592,25 @@ export default function Game2048() {
           </Card>
         </div>
 
-        {/* New Game Button */}
-        <div className="flex justify-center mb-4">
-          <Button onClick={initGame} className="bg-blue-600 hover:bg-blue-700 text-white">
+        {/* Controls */}
+        <div className="flex justify-between items-center mb-4">
+          <Button onClick={resetGame} className="bg-blue-600 hover:bg-blue-700 text-white" disabled={isLoading}>
             <RotateCcw className="w-4 h-4 mr-2" />
             New Game
+          </Button>
+
+          <Button onClick={toggleBackendMode} variant="outline" size="sm" className="text-xs" disabled={isLoading}>
+            {useBackend ? (
+              <>
+                <Monitor className="w-3 h-3 mr-1" />
+                Switch to Client
+              </>
+            ) : (
+              <>
+                <Server className="w-3 h-3 mr-1" />
+                {backendAvailable ? "Use C++ Backend" : "Check Backend"}
+              </>
+            )}
           </Button>
         </div>
 
@@ -415,6 +644,13 @@ export default function Game2048() {
                 {tile.value}
               </div>
             ))}
+
+            {/* Loading overlay */}
+            {isLoading && (
+              <div className="absolute inset-0 bg-white bg-opacity-50 flex items-center justify-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-700"></div>
+              </div>
+            )}
           </div>
         </Card>
 
@@ -422,6 +658,11 @@ export default function Game2048() {
         <div className="mt-4 text-center text-sm text-slate-600">
           <p>Use arrow keys to move tiles</p>
           <p>When two tiles with the same number touch, they merge!</p>
+          {!backendAvailable && (
+            <p className="text-xs text-orange-600 mt-2">
+              💡 To use C++ backend: Set up and run the backend server on port 3001
+            </p>
+          )}
         </div>
 
         {/* Game Over Modal */}
@@ -431,7 +672,7 @@ export default function Game2048() {
               <X className="w-12 h-12 text-red-500 mx-auto mb-4" />
               <h2 className="text-2xl font-bold text-slate-900 mb-2">Game Over!</h2>
               <p className="text-slate-600 mb-4">Final Score: {score}</p>
-              <Button onClick={initGame} className="bg-blue-600 hover:bg-blue-700 text-white">
+              <Button onClick={resetGame} className="bg-blue-600 hover:bg-blue-700 text-white">
                 Try Again
               </Button>
             </Card>
@@ -453,7 +694,7 @@ export default function Game2048() {
                 >
                   Keep Playing
                 </Button>
-                <Button onClick={initGame} className="bg-blue-600 hover:bg-blue-700 text-white">
+                <Button onClick={resetGame} className="bg-blue-600 hover:bg-blue-700 text-white">
                   New Game
                 </Button>
               </div>
