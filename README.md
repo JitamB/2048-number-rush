@@ -1,30 +1,88 @@
-# Number Rush Web App
+# 2048 Game with C++ Backend
 
-*Automatically synced with your [v0.dev](https://v0.dev) deployments*
+This project implements the classic 2048 game with a React frontend and a C++ backend.
 
-[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?style=for-the-badge&logo=vercel)](https://vercel.com/jitams-projects-8cdb3856/v0-number-rush-web-app)
-[![Built with v0](https://img.shields.io/badge/Built%20with-v0.dev-black?style=for-the-badge)](https://v0.dev/chat/projects/pMfm7j5N0c4)
+## Project Structure
 
-## Overview
+- `backend/`: C++ backend code
+  - `game_logic.hpp`: Game logic implementation
+  - `server.cpp`: Crow web server with API endpoints
+  - `CMakeLists.txt`: Build configuration
+  - `Dockerfile`: Docker configuration for the backend
+- `app/`: React frontend code
+  - `page.tsx`: Main game component
 
-This repository will stay in sync with your deployed chats on [v0.dev](https://v0.dev).
-Any changes you make to your deployed app will be automatically pushed to this repository from [v0.dev](https://v0.dev).
+## Setup Instructions
 
-## Deployment
+### Backend Setup
 
-Your project is live at:
+#### Option 1: Using Docker
 
-**[https://vercel.com/jitams-projects-8cdb3856/v0-number-rush-web-app](https://vercel.com/jitams-projects-8cdb3856/v0-number-rush-web-app)**
+1. Build the Docker image:
+   \`\`\`bash
+   cd backend
+   docker build -t game2048-backend .
+   \`\`\`
 
-## Build your app
+2. Run the container:
+   \`\`\`bash
+   docker run -p 3001:3001 game2048-backend
+   \`\`\`
 
-Continue building your app on:
+#### Option 2: Manual Setup
 
-**[https://v0.dev/chat/projects/pMfm7j5N0c4](https://v0.dev/chat/projects/pMfm7j5N0c4)**
+1. Install dependencies:
+   \`\`\`bash
+   # Ubuntu/Debian
+   sudo apt-get install build-essential cmake libboost-all-dev
+   
+   # macOS
+   brew install cmake boost
+   
+   # Windows (using vcpkg)
+   vcpkg install boost
+   \`\`\`
+
+2. Clone Crow:
+   \`\`\`bash
+   git clone https://github.com/CrowCpp/Crow.git backend/crow
+   \`\`\`
+
+3. Build the project:
+   \`\`\`bash
+   cd backend
+   mkdir build && cd build
+   cmake ..
+   make
+   \`\`\`
+
+4. Run the server:
+   \`\`\`bash
+   ./game_server
+   \`\`\`
+
+### Frontend Setup
+
+1. Install dependencies:
+   \`\`\`bash
+   npm install
+   \`\`\`
+
+2. Run the development server:
+   \`\`\`bash
+   npm run dev
+   \`\`\`
+
+3. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## How It Works
 
-1. Create and modify your project using [v0.dev](https://v0.dev)
-2. Deploy your chats from the v0 interface
-3. Changes are automatically pushed to this repository
-4. Vercel deploys the latest version from this repository
+1. The C++ backend implements the game logic and exposes it via a REST API.
+2. The React frontend communicates with the backend to initialize the game, make moves, and reset the game.
+3. If the backend is unavailable, the frontend falls back to client-side logic.
+
+## API Endpoints
+
+- `POST /api/game/new`: Create a new game session
+- `POST /api/game/move`: Make a move (requires sessionId and direction)
+- `POST /api/game/reset`: Reset the game (requires sessionId)
